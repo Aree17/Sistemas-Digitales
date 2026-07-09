@@ -20,6 +20,8 @@ PubSubClient client(espClient);
 #define TMP36_PIN 34
 
 bool ledState = false;
+bool lastLedState = false;
+
 SemaphoreHandle_t xLedSemaphore;
 
 //=====================
@@ -33,7 +35,9 @@ void callback(char* topic, byte* payload, unsigned int length)
   for (int i = 0; i < length; i++)
     mensaje += (char)payload[i];
 
-  Serial.print("Mensaje MQTT: ");
+  Serial.print("[TAREA MQTT] Mensaje recibido en tópico ");
+  Serial.print(topic);
+  Serial.print(": ");
   Serial.println(mensaje);
 
   xSemaphoreTake(xLedSemaphore, portMAX_DELAY);
@@ -93,16 +97,17 @@ void conectarMQTT()
 {
   while (!client.connected())
   {
-    Serial.println("Conectando MQTT...");
+    Serial.println("[TAREA MQTT] Conectando al broker MQTT...");
 
     if (client.connect("ESP32"))
     {
-      Serial.println("MQTT conectado");
+      Serial.println("[TAREA MQTT] MQTT conectado correctamente");
       client.subscribe("esp32/led");
+      Serial.println("[TAREA MQTT] Suscrito al tópico esp32/led");
     }
     else
     {
-      Serial.println("Error conectando MQTT. Reintentando...");
+      Serial.println("[TAREA MQTT] Error conectando MQTT. Reintentando...");
       delay(2000);
     }
   }
@@ -135,7 +140,6 @@ void TaskSensor(void *pvParameters)
 
   while (true)
   {
-    // Lee directamente en milivoltios
     int milivoltios = analogReadMilliVolts(TMP36_PIN);
 
     // TMP36:
@@ -146,15 +150,18 @@ void TaskSensor(void *pvParameters)
 
     if (client.connected()) {
       client.publish("esp32/temperatura", dato);
-    }
 
-    Serial.print("Temperatura TMP36: ");
-    Serial.print(dato);
-    Serial.println(" °C");
+      Serial.print("[TAREA SENSOR] Temperatura publicada: ");
+      Serial.print(dato);
+      Serial.println(" °C");
+    } else {
+      Serial.println("[TAREA SENSOR] No se publicó temperatura porque MQTT no está conectado");
+    }
 
     vTaskDelay(pdMS_TO_TICKS(2000));
   }
 }
+
 //=====================
 // TAREA LED
 //=====================
@@ -167,6 +174,20 @@ void TaskLED(void *pvParameters)
 
     digitalWrite(LED_PIN, ledState);
 
+    if (ledState != lastLedState)
+    {
+      if (ledState == true)
+      {
+        Serial.println("[TAREA LED] LED ENCENDIDO");
+      }
+      else
+      {
+        Serial.println("[TAREA LED] LED APAGADO");
+      }
+
+      lastLedState = ledState;
+    }
+
     xSemaphoreGive(xLedSemaphore);
 
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -176,6 +197,7 @@ void TaskLED(void *pvParameters)
 //=====================
 // SETUP
 //=====================
+
 void setup()
 {
   Serial.begin(115200);
